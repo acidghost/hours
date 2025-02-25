@@ -25,7 +25,7 @@ const (
 	periodAll              = "all"
 )
 
-func RenderStats(db *sql.DB, style Style, writer io.Writer, plain bool, period string, interactive bool) error {
+func RenderStats(db *sql.DB, style Style, writer io.Writer, plain bool, period string, interactive bool, activeFilter types.TaskActiveStatusFilter) error {
 	if period == "" {
 		return nil
 	}
@@ -37,9 +37,14 @@ func RenderStats(db *sql.DB, style Style, writer io.Writer, plain bool, period s
 		return fmt.Errorf("%w when period=all", errInteractiveModeNotApplicable)
 	}
 
+	params := getStatsParams{
+		period:       period,
+		activeFilter: activeFilter,
+		plain:        plain,
+	}
+
 	if period == periodAll {
-		// TODO: find a better way for this, passing start, end for "all" doesn't make sense
-		stats, err = getStats(db, style, period, time.Now(), time.Now(), plain)
+		stats, err = getStats(db, style, params)
 		if err != nil {
 			return fmt.Errorf("%w: %s", errCouldntGenerateStats, err.Error())
 		}
@@ -56,7 +61,10 @@ func RenderStats(db *sql.DB, style Style, writer io.Writer, plain bool, period s
 		return err
 	}
 
-	stats, err = getStats(db, style, period, ts.Start, ts.End, plain)
+	params.start = ts.Start
+	params.end = ts.End
+
+	stats, err = getStats(db, style, params)
 	if err != nil {
 		return fmt.Errorf("%w: %s", errCouldntGenerateStats, err.Error())
 	}
@@ -73,14 +81,21 @@ func RenderStats(db *sql.DB, style Style, writer io.Writer, plain bool, period s
 	return nil
 }
 
-func getStats(db *sql.DB, style Style, period string, start, end time.Time, plain bool) (string, error) {
+type getStatsParams struct {
+	period       string
+	start, end   time.Time
+	activeFilter types.TaskActiveStatusFilter
+	plain        bool
+}
+
+func getStats(db *sql.DB, style Style, params getStatsParams) (string, error) {
 	var entries []types.TaskReportEntry
 	var err error
 
-	if period == periodAll {
-		entries, err = pers.FetchStats(db, statsLogEntriesLimit)
+	if params.period == periodAll {
+		entries, err = pers.FetchStats(db, statsLogEntriesLimit, params.activeFilter)
 	} else {
-		entries, err = pers.FetchStatsBetweenTS(db, start, end, statsLogEntriesLimit)
+		entries, err = pers.FetchStatsBetweenTS(db, params.start, params.end, statsLogEntriesLimit, params.activeFilter)
 	}
 
 	if err != nil {
@@ -105,13 +120,13 @@ func getStats(db *sql.DB, style Style, period string, start, end time.Time, plai
 
 	var timeSpentStr string
 
-	rs := style.getReportStyles(plain)
+	rs := style.getReportStyles(params.plain)
 	styleCache := make(map[string]lipgloss.Style)
 
 	for i, entry := range entries {
 		timeSpentStr = types.HumanizeDuration(entry.SecsSpent)
 
-		if plain {
+		if params.plain {
 			data[i] = []string{
 				utils.RightPadTrim(entry.TaskSummary, 20, false),
 				fmt.Sprintf("%d", entry.NumEntries),

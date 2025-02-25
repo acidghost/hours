@@ -193,7 +193,14 @@ func getRecordsData(analyticsType recordsType, db *sql.DB, style Style, period s
 		case reportLogs:
 			data, err = getTaskLog(db, style, start, end, 20, plain)
 		case reportStats:
-			data, err = getStats(db, style, period, start, end, plain)
+			data, err = getStats(db, style, getStatsParams{
+				period:       period,
+				start:        start,
+				end:          end,
+				// TODO
+				activeFilter: 0,
+				plain:        plain,
+			})
 		}
 
 		return recordsDataFetchedMsg{
